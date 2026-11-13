@@ -1,5 +1,10 @@
-import { SITHook, SITHookEvent } from '../types';
+import { SITHook, SITHookContext, SITHookEvent } from '../types';
 import { Funscript } from 'funscript-utils/lib/types';
+import {
+  OpaqueReason,
+  OutputTransformContext,
+  runOutputTransforms,
+} from '../extensions';
 
 let cache = {
   id: '',
@@ -32,13 +37,14 @@ function convertFunscriptToCSV(funscript: Funscript) {
   }
   throw new Error('Not a valid funscript');
 }
-async function getHandyFeelingUrl(script: Funscript | string): Promise<string> {
-  const csv =
-    typeof script !== 'string'
-      ? convertFunscriptToCSV(script)
-      : await fetch(script)
-          .then((response) => response.json())
-          .then((json) => convertFunscriptToCSV(json as Funscript));
+async function fetchFunscript(url: string): Promise<Funscript> {
+  const response = await fetch(url);
+  if (!response.ok)
+    throw new Error(`Could not load funscript (HTTP ${response.status})`);
+  return (await response.json()) as Funscript;
+}
+async function getHandyFeelingUrl(script: Funscript): Promise<string> {
+  const csv = convertFunscriptToCSV(script);
 
   const fileName = `${Math.round(Math.random() * 100000000)}.csv`;
   const csvFile = new File([csv], fileName);
@@ -52,11 +58,35 @@ function getJsonFileSize<T>(json: T): number {
   // Calculate the byte size of the JSON string
   return new Blob([jsonString]).size;
 }
+function transformContext(
+  ctx: SITHookContext,
+  generation: number | undefined,
+): OutputTransformContext {
+  const state = ctx.state.current;
+  return {
+    sceneId: state.sceneId,
+    deviceId: state.device.id,
+    generation: generation ?? 0,
+    modifiers: state.modifiers ?? [],
+  };
+}
+async function checkOpaque(
+  ctx: SITHookContext,
+  reason: OpaqueReason,
+  generation?: number,
+) {
+  // opaque scripts cannot be transformed; transforms may still refuse them
+  await runOutputTransforms(
+    { kind: 'opaque', reason },
+    transformContext(ctx, generation),
+  );
+}
+
 export const enableHandyTokens: SITHook<SITHookEvent.RESOLVE_FUNSCRIPT_PATH> = {
   event: SITHookEvent.RESOLVE_FUNSCRIPT_PATH,
   name: 'enableHandyTokens',
 
-  async apply(ctx, { funscriptPath }) {
+  async apply(ctx, { funscriptPath, generation }) {
     const state = ctx.state.current;
     if (!cache.id || cache.id !== state.id) {
       cache = {
@@ -73,6 +103,7 @@ export const enableHandyTokens: SITHook<SITHookEvent.RESOLVE_FUNSCRIPT_PATH> = {
       } = script;
       const hasTokenFirstPosition = first.pos === 0 && first.at === 66;
       if (withinTokenFileSize && hasTokenFirstPosition) {
+        await checkOpaque(ctx, 'handy-token', generation);
         if (cache.url) {
           funscriptPath = cache.url;
         } else {
@@ -82,9 +113,19 @@ export const enableHandyTokens: SITHook<SITHookEvent.RESOLVE_FUNSCRIPT_PATH> = {
       }
     }
 
-    if (!state.ivdb && useOriginal) {
-      funscriptPath = await getHandyFeelingUrl(state.blobUrl || funscriptPath);
+    if (state.ivdb) {
+      await checkOpaque(ctx, 'ivdb', generation);
+      return { funscriptPath, appliedTransforms: [] };
     }
-    return { funscriptPath };
+    if (!useOriginal) {
+      return { funscriptPath, appliedTransforms: [] };
+    }
+    const source = await fetchFunscript(state.blobUrl || funscriptPath);
+    const { script, applied } = await runOutputTransforms(
+      { kind: 'actions', script: source },
+      transformContext(ctx, generation),
+    );
+    funscriptPath = await getHandyFeelingUrl(script ?? source);
+    return { funscriptPath, appliedTransforms: applied };
   },
 };

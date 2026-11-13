@@ -9,6 +9,7 @@
     "importApiIndex": "rimraf SCRIPTAPIINDEX && openapi --exportSchemas true --input https://scripts01.handyfeeling.com/api/script/index/v0/spec --output SCRIPTAPIINDEX --name ScriptApiIndex --indent 4",
     "prepare": "husky",
     "lint": "prettier . --write",
+    "test": "vitest run",
     "local-release": "yarn release && cross-env CI=true HUSKY=0 semantic-release"
   },
   "dependencies": {
@@ -83,7 +84,8 @@
     "thehandy": "^1.0.3",
     "tslib": "^2.6.3",
     "typescript": "^5.5.4",
-    "typescript-eslint": "^8.1.0"
+    "typescript-eslint": "^8.1.0",
+    "vitest": "3.2.4"
   },
   "peerDependencies": {
     "@apollo/client": "^3.8.10",

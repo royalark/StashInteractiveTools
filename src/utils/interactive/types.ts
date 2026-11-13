@@ -3,6 +3,7 @@ import { MutableRefObject } from 'react';
 import { createDebugConsole } from '../common';
 import { Funscript } from 'funscript-utils/lib/types';
 import { HapticDevice } from 'ive-connect';
+import { OutputModifierSummary } from './extensions';
 
 export enum SITHookEvent {
   RESOLVE_FUNSCRIPT_PATH = 'resolve.funscript.path',
@@ -13,6 +14,8 @@ export type SITHookPayloadMapping = {
   [SITHookEvent.RESOLVE_FUNSCRIPT_PATH]: {
     funscriptPath: string;
     apiKey?: string;
+    generation?: number;
+    appliedTransforms?: string[];
   };
 };
 export type SITHookPayload<T extends SITHookEvent> = SITHookPayloadMapping[T];
@@ -50,6 +53,8 @@ export type InteractiveState = MutableRefObject<{
   blobUrl: string | null;
   hooks: AnySITHook[];
   device: HapticDevice;
+  sceneId: string;
+  modifiers: OutputModifierSummary[];
 
   config: SITPluginConfig;
 }>;

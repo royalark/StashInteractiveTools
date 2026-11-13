@@ -32,6 +32,11 @@ import {
 } from '../components/modifiers/pipeline';
 import { DB, DBSchema, IndexedDBWrapper } from '../utils/db';
 import { DefaultHandyClient } from '../utils/interactive/client';
+import {
+  OutputModifierSummary,
+  setActiveSession,
+} from '../utils/interactive/extensions';
+import { toValues } from '../components/modifiers/utils';
 import useInteractive = PluginApi.hooks.useInteractive;
 
 async function applyScriptChanges(url: string, script: Funscript) {
@@ -111,6 +116,18 @@ export async function resolveScriptPipeline(
   );
 }
 
+function summarizeModifiers(
+  pipelines: ScriptPipeline[],
+): OutputModifierSummary[] {
+  const pipeline = pipelines.find((p) => p.name === MODIFICATION_PIPELINE_ID) as
+    | ModificationPipeline
+    | undefined;
+  return (pipeline?.modifiers ?? []).map((m) => ({
+    id: m.id,
+    values: { ...toValues(m) },
+  }));
+}
+
 export const InteractiveToolsProvider = ({ scene, children }: Props) => {
   const [entries, setEntries] = useState<Script[]>([]);
 
@@ -144,9 +161,12 @@ export const InteractiveToolsProvider = ({ scene, children }: Props) => {
     device: device.current,
     hooks: currentHooks,
     cache: {} as Record<string, Any>,
+    sceneId: scene.id,
+    modifiers: [] as OutputModifierSummary[],
   });
 
   interactiveState.current.hooks = currentHooks;
+  interactiveState.current.sceneId = scene.id;
 
   interactiveState.current.ivdb =
     (scene.id === interactiveState.current.id &&
@@ -199,6 +219,7 @@ export const InteractiveToolsProvider = ({ scene, children }: Props) => {
           src: url,
         };
       } else if (script) {
+        interactiveState.current.modifiers = summarizeModifiers(pipelines);
         const pipe = await resolveScriptPipeline(
           {
             url,
@@ -305,6 +326,24 @@ export const InteractiveToolsProvider = ({ scene, children }: Props) => {
       });
     }
   }, [scene, updateScript]);
+
+  // expose a re-upload entry point for extensions (e.g. a toggled transform)
+  const latestPaths = useRef(currentPaths);
+  latestPaths.current = currentPaths;
+  useEffect(
+    () =>
+      setActiveSession({
+        sceneId: scene.id,
+        async reupload() {
+          const path =
+            interactiveState.current.blobUrl || latestPaths.current.src;
+          if (!path) return;
+          await interactive.pause();
+          await interactive.uploadScript(path);
+        },
+      }),
+    [scene.id, interactive],
+  );
 
   const id = scene.id;
   useEffect(() => {
